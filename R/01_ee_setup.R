@@ -368,6 +368,8 @@ all3 <- bind_rows(
   county_2025_masked |> mutate(source = "County, grain only")
 )
 
+all3 <- read_csv("data/curves_2025_test.csv")
+
 ggplot(all3, aes(week, ndvi, color = source)
   )  +
   geom_line() +
@@ -375,11 +377,14 @@ ggplot(all3, aes(week, ndvi, color = source)
 
 # caching results so I dont have to do this all again
 
-dir.create("data", showWarnings = FALSE)
-write_csv(all3, "data/curves_2025_test.csv")
 
-ggsave("county_vs_field_2025.png")
+# write_csv(all3, "data/curves_2025_test.csv")
 
+# ggsave("county_vs_field_2025.png")
+
+## LOGAN!! Heres what you fina do Nov 5:
+# Run masked county curve for 2020 to 2023, using each years own CDL (the prev year)
+# And cache each one like above!
 
 # Calculating multiple years at once
 
@@ -391,6 +396,53 @@ curves <- map(years, \(y) field_curve(field, paste0(y, "-04-01"))) |>
 ggplot(curves, aes(week, ndvi, color = factor(year), group = year)) +
   geom_line() +
   geom_point()
+
+
+counties <- ee$FeatureCollection("TIGER/2018/Counties")
+madison <- counties$
+  filter(ee$Filter$eq("STATEFP", "16"))$
+  filter(ee$Filter$eq("NAME", "Madison"))
+madison$size()$getInfo()
+madison_geom <- madison$geometry()
+# county_2025 <- field_curve(madison_geom, "2025-04-01", scale = 250)
+# county_2025_masked <- field_curve(madison_geom, "2025-04-01", scale = 250, cdl_year = 2025)
+
+county_years <- 2020:2025
+
+county_curves <- map(county_years, \(y) field_curve(madison_geom, paste0(y, "-04-01"), scale=250, cdl_year = y-1)) |> 
+  list_rbind()
+
+county_test <- field_curve(madison_geom, "2025-04-01", scale = 250, cdl_year = 2024)
+
+View(county_test)
+
+ggplot(county_curves, aes(week, ndvi, color = factor(year), group = year)) +
+  geom_line() +
+  geom_point()
+
+
+View(county_curves)
+
+smooth_county_curves <- county_curves |> 
+  group_by(year) |> 
+  arrange(week) |> 
+  mutate(
+    smooth_ndvi = case_when(
+      is.na(lag(ndvi)) ~ ndvi,
+      is.na(lead(ndvi)) ~ ndvi,
+      .default = (lag(ndvi) + ndvi + lead(ndvi)) - pmax(lag(ndvi), ndvi, lead(ndvi)) - pmin(lag(ndvi), ndvi, lead(ndvi))
+    )
+  ) |> 
+  ungroup() |> 
+  arrange(year, week)
+
+?case_when()
+
+View(smooth_county_curves)
+
+write_csv(smooth_county_curves, "data/smooth_madison_county_curves_2020_2025.csv")
+
+# ggsave("county_curves_2020_2025.png")
 
 # Soooo cool! 2020 - 2025 there are some sweet patterns!
 
